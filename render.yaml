@@ -1,0 +1,29 @@
+services:
+  # 1. FastAPI Backend
+  - type: web
+    name: movie-rec-backend
+    env: python
+    rootDir: movie-rec-main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TMDB_API_KEY
+        sync: false # You will enter your TMDB API Key in the Render UI
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+  # 2. Streamlit Frontend
+  - type: web
+    name: movie-rec-frontend
+    env: python
+    rootDir: movie-rec-main
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: API_BASE
+        fromService:
+          type: web
+          name: movie-rec-backend
+          property: host
+      - key: PYTHON_VERSION
+        value: 3.11.9

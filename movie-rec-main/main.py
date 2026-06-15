@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 load_dotenv()
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-TMDB_BASE = "https://api.themoviedb.org/3"
+TMDB_BASE = "http://api.themoviedb.org/3"
 TMDB_IMG_500 = "https://image.tmdb.org/t/p/w500"
 
 if not TMDB_API_KEY:
@@ -55,6 +55,7 @@ tfidf_matrix: Any = None
 tfidf_obj: Any = None
 
 TITLE_TO_IDX: Optional[Dict[str, int]] = None
+tmdb_client: Optional[httpx.AsyncClient] = None
 
 
 # =========================
@@ -109,25 +110,42 @@ async def tmdb_get(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
     Safe TMDB GET:
     - Network errors -> 502
     - TMDB API errors -> 502 with detail
+    - Reuses global connection client and implements retry logic.
     """
+    global tmdb_client
+    if tmdb_client is None:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        tmdb_client = httpx.AsyncClient(headers=headers, timeout=20)
+
     q = dict(params)
     q["api_key"] = TMDB_API_KEY
 
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get(f"{TMDB_BASE}{path}", params=q)
-    except httpx.RequestError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"TMDB request error: {type(e).__name__} | {repr(e)}",
-        )
+    last_error = None
+    for attempt in range(3):
+        try:
+            r = await tmdb_client.get(f"{TMDB_BASE}{path}", params=q)
+            if r.status_code == 200:
+                return r.json()
+            elif r.status_code == 429: # Rate limit
+                import asyncio
+                await asyncio.sleep(0.5)
+                continue
+            else:
+                raise HTTPException(
+                    status_code=502, detail=f"TMDB error {r.status_code}: {r.text}"
+                )
+        except httpx.RequestError as e:
+            last_error = e
+            import asyncio
+            await asyncio.sleep(0.2 * (attempt + 1))
+            continue
 
-    if r.status_code != 200:
-        raise HTTPException(
-            status_code=502, detail=f"TMDB error {r.status_code}: {r.text}"
-        )
-
-    return r.json()
+    raise HTTPException(
+        status_code=502,
+        detail=f"TMDB connection failed after retries: {type(last_error).__name__} | {repr(last_error)}",
+    )
 
 
 async def tmdb_cards_from_results(
@@ -282,7 +300,13 @@ async def attach_tmdb_card_by_title(title: str) -> Optional[TMDBMovieCard]:
 # =========================
 @app.on_event("startup")
 def load_pickles():
-    global df, indices_obj, tfidf_matrix, tfidf_obj, TITLE_TO_IDX
+    global df, indices_obj, tfidf_matrix, tfidf_obj, TITLE_TO_IDX, tmdb_client
+
+    # Initialize persistent connection client
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    tmdb_client = httpx.AsyncClient(headers=headers, timeout=20)
 
     # Load df
     with open(DF_PATH, "rb") as f:
@@ -306,6 +330,13 @@ def load_pickles():
     # sanity
     if df is None or "title" not in df.columns:
         raise RuntimeError("df.pkl must contain a DataFrame with a 'title' column")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global tmdb_client
+    if tmdb_client:
+        await tmdb_client.aclose()
 
 
 # =========================

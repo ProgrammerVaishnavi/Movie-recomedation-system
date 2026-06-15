@@ -89,3 +89,28 @@ cd movie-rec-main
 In `main.py`, external requests to TMDB are routed via `http://api.themoviedb.org` instead of `https://api.themoviedb.org`. 
 
 This is an intentional configuration designed to bypass connection termination errors (`[SSL: UNEXPECTED_EOF_WHILE_READING]`) that occur when local network inspection software (like third-party antivirus) or Cloudflare's bot-detection fingerprinting flags python-native SSL handshakes. HTTP provides a 100% stable connection for local development.
+
+---
+
+## ☁️ Deployment on Hugging Face Spaces (100% Free, No Card Required)
+
+Hugging Face Spaces offers a completely free hosting tier for Streamlit applications, and **does not require a credit card** to deploy.
+
+We have included a `Dockerfile` that packages both the FastAPI backend and Streamlit frontend into a single container.
+
+### Step-by-Step Deployment:
+1. Go to [Hugging Face Spaces](https://huggingface.co/spaces) and sign in/register.
+2. Click **Create new Space**.
+3. Choose a name for your Space (e.g. `movie-recommender`).
+4. Select **Docker** as the SDK.
+5. Under template options, select **Blank** (or custom).
+6. Choose the **Public** or **Private** visibility and click **Create Space**.
+7. Connect your GitHub repository to the Space or push files directly using Git:
+   ```bash
+   git remote add hf https://huggingface.co/spaces/YOUR_USERNAME/YOUR_SPACE_NAME
+   git push hf main
+   ```
+8. Under your Space's **Settings**, go to **Variables and Secrets** and click **New Secret**:
+   - Name: `TMDB_API_KEY`
+   - Value: `your_actual_tmdb_api_key`
+9. Hugging Face will automatically build the Docker image and deploy your Streamlit app! It will run on their free hardware indefinitely.
